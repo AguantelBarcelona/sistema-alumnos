@@ -1,7 +1,8 @@
 
  // Jenkinsfile - Pipeline de "Sistema Alumnos" (OCY1102)
  //
- // Pipeline con compilación, pruebas, documentación y trazabilidad.
+ // Pipeline con compilación, pruebas, documentación,
+ // trazabilidad y despliegue automático.
 
 pipeline {
     agent any
@@ -155,8 +156,20 @@ pipeline {
             }
         }
 
-        // >>> [B-DEPLOY] (Parte B, paso B5):
-        // Aquí va la etapa "Deploy"
+        // PARTE B5: Despliegue en entorno de prueba
+        stage('Deploy') {
+            when {
+                expression {
+                    currentBuild.currentResult == 'SUCCESS'
+                }
+            }
+
+            steps {
+                // Despliega Flask en el entorno de prueba
+                // y ejecuta las pruebas de humo.
+                sh 'bash scripts/deploy_test.sh'
+            }
+        }
     }
 
     post {
