@@ -1,7 +1,7 @@
 
  // Jenkinsfile - Pipeline de "Sistema Alumnos" (OCY1102)
  //
- // Pipeline con compilación, pruebas y documentación automática.
+ // Pipeline con compilación, pruebas, documentación y trazabilidad.
 
 pipeline {
     agent any
@@ -69,7 +69,6 @@ pipeline {
                         set -eu
 
                         mkdir -p reports
-
                         rm -rf docs/html reports/doxygen_warnings.log
 
                         doxygen Doxyfile
@@ -93,8 +92,68 @@ pipeline {
             }
         }
 
-        // >>> [B-VERSION] (Parte B, paso B4):
-        // Aquí va la etapa "Version Control"
+        // PARTE B4: Control de versiones y trazabilidad
+        stage('Version Control') {
+            // Solo versionar builds exitosos
+            // y excluir ejecuciones programadas
+            when {
+                allOf {
+                    expression {
+                        currentBuild.currentResult == 'SUCCESS'
+                    }
+                    not {
+                        triggeredBy 'TimerTrigger'
+                    }
+                }
+            }
+
+            steps {
+                // Generar el registro de trazabilidad
+                sh 'bash scripts/trazabilidad.sh'
+
+                // Recuperar credenciales seguras de Jenkins
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-token',
+                    usernameVariable: 'GIT_USER',
+                    passwordVariable: 'GIT_TOKEN'
+                )]) {
+                    sh '''#!/bin/bash
+                        set -eu
+
+                        # Identificar los commits automáticos
+                        git config user.name "Jenkins CI"
+                        git config user.email "jenkins@localhost"
+
+                        # Agregar la documentación generada
+                        git add docs
+
+                        # No crear commits innecesarios
+                        if git diff --cached --quiet; then
+                            echo "No hay cambios en docs/: nada que versionar"
+                            exit 0
+                        fi
+
+                        # Crear commit automático
+                        git commit -q -m "docs: documentación del build #${BUILD_NUMBER} (${APP_VERSION}) [skip ci]"
+
+                        # Crear etiqueta de trazabilidad
+                        git tag -a "build-${BUILD_NUMBER}-${GIT_SHA}" -m "Build ${BUILD_NUMBER} - versión ${APP_VERSION}"
+
+                        # Configurar autenticación segura
+                        # sin colocar el token en la URL
+                        ASKPASS="$(mktemp)"
+                        trap 'rm -f "$ASKPASS"' EXIT
+
+                        printf '#!/bin/sh\\ncase "$1" in Username*) echo "$GIT_USER" ;; *) echo "$GIT_TOKEN" ;; esac\\n' > "$ASKPASS"
+
+                        chmod 700 "$ASKPASS"
+
+                        # Publicar documentación y etiquetas
+                        GIT_ASKPASS="$ASKPASS" GIT_TERMINAL_PROMPT=0 git push origin HEAD:main --follow-tags
+                    '''
+                }
+            }
+        }
 
         // >>> [B-DEPLOY] (Parte B, paso B5):
         // Aquí va la etapa "Deploy"
